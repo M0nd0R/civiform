@@ -33,6 +33,7 @@ import services.applicant.ReadOnlyApplicantProgramService;
 import services.applicant.exception.ApplicantNotFoundException;
 import services.applicant.exception.ProgramBlockNotFoundException;
 import services.applicant.question.FileUploadQuestion;
+import services.cloud.ApplicantFileNameFormatter;
 import services.program.PathNotInBlockException;
 import services.program.ProgramNotFoundException;
 import services.question.exceptions.UnsupportedScalarTypeException;
@@ -339,11 +340,13 @@ public final class FileUploadController extends CiviFormController {
         .lookupFile(key)
         .thenComposeAsync(
             (Optional<StoredFileModel> maybeStoredFile) -> {
-              // If there is already a stored file with this key in the database, then
-              // the applicant has uploaded a file with the same name for the same
-              // block and question, overwriting the original in file storage.
               if (maybeStoredFile.isPresent()) {
-                return completedFuture(maybeStoredFile.get());
+                StoredFileModel storedFile = maybeStoredFile.get();
+                if (!storedFile.getAcls().hasApplicantReadPermission(applicantId)
+                    && !ApplicantFileNameFormatter.isApplicantOwnedFileKey(key, applicantId)) {
+                  return failedFuture(new SecurityException("Applicant cannot access file"));
+                }
+                return completedFuture(storedFile);
               }
 
               var storedFile = new StoredFileModel();

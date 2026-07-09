@@ -35,6 +35,7 @@ import models.AccountModel;
 import models.ApplicantModel;
 import models.LifecycleStage;
 import models.ProgramModel;
+import models.StoredFileModel;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -52,6 +53,7 @@ import services.Path;
 import services.applicant.ApplicantData;
 import services.applicant.ApplicantService;
 import services.applicant.question.Scalar;
+import services.cloud.ApplicantFileNameFormatter;
 import services.cloud.ApplicantStorageClient;
 import services.geo.AddressLocation;
 import services.geo.AddressSuggestion;
@@ -2221,6 +2223,83 @@ public class ApplicantProgramBlocksControllerTest extends WithMockedProfiles {
             .join()
             .size();
     assertThat(storedFileCount).isEqualTo(1);
+  }
+
+  @Test
+  public void addFileWithApplicantId_rejectsExistingFileWithoutApplicantReadAcl() {
+    program =
+        ProgramBuilder.newActiveProgram()
+            .withBlock("block 1")
+            .withRequiredQuestion(testQuestionBank().fileUploadApplicantFile())
+            .build();
+
+    ApplicantModel victimApplicant = createApplicant();
+    String victimFileKey =
+        ApplicantFileNameFormatter.formatFileUploadQuestionFilename(
+                victimApplicant.id, program.id, "1")
+            .replace("${filename}", "victim.pdf");
+    var storedFileRepo = instanceOf(StoredFileRepository.class);
+    var victimFile = new StoredFileModel();
+    victimFile.setName(victimFileKey);
+    victimFile.getAcls().addApplicantToReaders(victimApplicant.id);
+    storedFileRepo.insert(victimFile).toCompletableFuture().join();
+
+    RequestBuilder request = fakeRequestBuilder();
+    addQueryString(request, ImmutableMap.of("key", victimFileKey, "bucket", "fake-bucket"));
+
+    Result result =
+        subject
+            .addFileWithApplicantId(
+                request.build(),
+                applicant.id,
+                program.id,
+                /* blockId= */ "1",
+                /* inReview= */ false)
+            .toCompletableFuture()
+            .join();
+
+    assertThat(result.status()).isEqualTo(UNAUTHORIZED);
+
+    applicant.refresh();
+    String applicantData = applicant.getApplicantData().asJsonString();
+    assertThat(applicantData).doesNotContain(victimFileKey);
+  }
+
+  @Test
+  public void addFileWithApplicantId_allowsExistingLegacyApplicantOwnedFileKey() {
+    program =
+        ProgramBuilder.newActiveProgram()
+            .withBlock("block 1")
+            .withRequiredQuestion(testQuestionBank().fileUploadApplicantFile())
+            .build();
+
+    String legacyFileKey =
+        ApplicantFileNameFormatter.formatFileUploadQuestionFilename(applicant.id, program.id, "1")
+            .replace("${filename}", "legacy.pdf");
+    var storedFileRepo = instanceOf(StoredFileRepository.class);
+    var legacyFile = new StoredFileModel();
+    legacyFile.setName(legacyFileKey);
+    storedFileRepo.insert(legacyFile).toCompletableFuture().join();
+
+    RequestBuilder request = fakeRequestBuilder();
+    addQueryString(request, ImmutableMap.of("key", legacyFileKey, "bucket", "fake-bucket"));
+
+    Result result =
+        subject
+            .addFileWithApplicantId(
+                request.build(),
+                applicant.id,
+                program.id,
+                /* blockId= */ "1",
+                /* inReview= */ false)
+            .toCompletableFuture()
+            .join();
+
+    assertThat(result.status()).isEqualTo(SEE_OTHER);
+
+    applicant.refresh();
+    String applicantData = applicant.getApplicantData().asJsonString();
+    assertThat(applicantData).contains(legacyFileKey);
   }
 
   @Test
