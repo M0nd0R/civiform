@@ -54,6 +54,7 @@ import org.pac4j.play.LogoutController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import play.Environment;
+import services.DeploymentType;
 
 /** SecurityModule configures and initializes all authentication and authorization classes. */
 public class SecurityModule extends AbstractModule {
@@ -255,7 +256,8 @@ public class SecurityModule extends AbstractModule {
       @ApplicantAuthClient @Nullable IndirectClient applicantAuthClient,
       @AdminAuthClient @Nullable IndirectClient adminAuthClient,
       FakeAdminClient fakeAdminClient,
-      DirectBasicAuthClient apiAuthClient) {
+      DirectBasicAuthClient apiAuthClient,
+      DeploymentType deploymentType) {
     List<Client> clientList = new ArrayList<>();
 
     clientList.add(guestClient);
@@ -267,7 +269,8 @@ public class SecurityModule extends AbstractModule {
     if (adminAuthClient != null) {
       clientList.add(adminAuthClient);
     }
-    if (fakeAdminClient.canEnable(URI.create(baseUrl).getHost())) {
+    if (deploymentType.isDevOrStaging()
+        && fakeAdminClient.canEnable(URI.create(baseUrl).getHost())) {
       clientList.add(fakeAdminClient);
     }
 
